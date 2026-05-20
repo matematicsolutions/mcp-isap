@@ -1,4 +1,5 @@
 # mcp-isap
+[![MCP](https://img.shields.io/badge/MCP-Server-blue)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![Node](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org)
 
 MCP server dla **legislacji polskiej** — Dziennik Ustaw (DU) + Monitor Polski (MP)
 przez oficjalne **Sejm ELI API** (`api.sejm.gov.pl/eli`).
