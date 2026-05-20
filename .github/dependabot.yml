@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      mcp-sdk:
+        patterns:
+          - "@modelcontextprotocol/*"
+      typescript-tooling:
+        patterns:
+          - "typescript"
+          - "tsx"
+          - "@types/*"
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
