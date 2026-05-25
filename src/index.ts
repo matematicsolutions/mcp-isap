@@ -257,8 +257,41 @@ function stripHtmlTags(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions
+// Instructions (procedural orchestration) - wstrzykiwane przez Server.
+// Drift test (test/drift.mjs) sprawdza spojnosc.
+// Pattern z dograh-hq/dograh v1.31.0 (BSD-2) via mcp-eu-compliance v0.2.0.
 // ---------------------------------------------------------------------------
+
+const INSTRUCTIONS = `Ten serwer MCP udostepnia polska legislacje (Dziennik Ustaw + Monitor Polski) od 1918 - 96 000+ aktow przez oficjalne Sejm ELI API (api.sejm.gov.pl/eli). Identyfikator ELI (np. DU/2018/1000) jest stabilnym kluczem cytowalnosci.
+
+## Kolejnosc wywolan
+
+### Szukanie ustawy / rozporzadzenia
+1. \`search_acts\` - po tytule (fragment, fleksja PL: "ochronie" znajdzie "o ochronie..."), roku, publisher (DU=Dziennik Ustaw, MP=Monitor Polski), typie aktu, statusie obowiazywania. Maks 50 wynikow.
+2. \`get_act\` - po znalezieniu ELI (np. \`DU/2018/1000\`) pobierz metadane: tytul, typ, status, daty, slowa kluczowe, linki HTML/PDF/ISAP.
+3. \`get_act_text\` - pelny tekst aktu HTML (pierwsze 5000 znakow czystego tekstu + link do pelnej tresci). Uzywaj zeby ocenic czy to wlasciwy akt.
+
+## Twarde ograniczenia
+
+- **Status aktu KLUCZOWY** - obowiazujacy / uchylony / wygasly musi byc w odpowiedzi koncowej. Cytowanie aktu uchylonego jako obowiazujacy = blad merytoryczny.
+- **ELI w cytowaniach** - format \`PUBLISHER/YEAR/POSITION\` (np. DU/2018/1000) lub kompakt \`WDU20180001000\`. Bez ELI brak cytowalnosci.
+- **Bez modyfikacji tresci** - tekst urzedowy integralny, NIE parafrazuj.
+- **Tekst HTML nie zawsze dostepny** - dla starszych aktow (przed 2012 czesto) jest tylko PDF. \`get_act_text\` zwraca info + link do PDF.
+- **\`structuredContent.citations\`**: title, url (isap.sejm.gov.pl), eli, status, in_force, type, promulgation_date. Cytuj w odpowiedzi.
+
+## Iteracja po bledach
+
+Tool zwraca \`isError: true\` + tekst z prefixem \`[code]\`. Typowe kody:
+- \`missing_arg\` - brakujacy \`eli\` w get_act / get_act_text. Przeczytaj inputSchema.
+- \`invalid_eli\` - format ELI nieprawidlowy. Wymagany "DU/2018/1000" lub "MP/2024/123" lub kompakt "WDU20180001000".
+- \`not_found\` - akt o danym ELI nie ma w bazie. Sprobuj search_acts.
+- \`upstream_error\` - blad Sejm ELI API. Retry raz przed surface do uzytkownika.
+
+## Styl odpowiedzi
+
+- Cytuj akty z ELI i statusem: "Ustawa o ochronie danych osobowych (DU/2018/1000, obowiazujaca)" lub "Ustawa z 1997 r. (DU/1997/133, uchylona przez DU/2018/1000)".
+- Dla aktow z linii zmian (kolejne nowelizacje) wymien chronologicznie.
+- NIE wymyslaj ELI - kazdy z \`structuredContent.citations\`.`;
 
 const PUBLISHERS = ["DU", "MP"] as const;
 const TYPES = [
@@ -271,13 +304,22 @@ const TYPES = [
     "Postanowienie",
 ] as const;
 
+const READ_ONLY_ANNOTATIONS = {
+    readOnlyHint: true,
+    idempotentHint: true,
+    destructiveHint: false,
+    openWorldHint: true, // upstream Sejm ELI API
+} as const;
+
 const TOOLS = [
     {
         name: "search_acts",
+        annotations: READ_ONLY_ANNOTATIONS,
         description:
             "Wyszukiwanie aktow prawa polskiego (Dziennik Ustaw + Monitor Polski) przez " +
             "oficjalne Sejm ELI API. Pokrycie: 96 000+ aktow od 1918. " +
-            "Filtry: fragment tytulu, rok, publisher (DU/MP), typ aktu, status obowiazywania.",
+            "Filtry: fragment tytulu, rok, publisher (DU/MP), typ aktu, status obowiazywania. " +
+            "Bledy: `upstream_error`.",
         inputSchema: {
             type: "object",
             properties: {
@@ -320,6 +362,7 @@ const TOOLS = [
     },
     {
         name: "get_act",
+        annotations: READ_ONLY_ANNOTATIONS,
         description:
             "Pobiera szczegoly aktu po identyfikatorze ELI (np. 'DU/2018/1000' dla " +
             "Ustawy o ochronie danych osobowych z 2018 r.). Zwraca pelne metadane: " +
@@ -339,6 +382,7 @@ const TOOLS = [
     },
     {
         name: "get_act_text",
+        annotations: READ_ONLY_ANNOTATIONS,
         description:
             "Pobiera tekst aktu w formacie HTML (jesli dostepny). Zwraca pierwsze " +
             "5000 znakow czystego tekstu (bez tagow) plus link do pelnego HTML/PDF. " +
@@ -430,19 +474,28 @@ async function handleSearch(args: Record<string, unknown>) {
     };
 }
 
+// Strukturalne kody bledow - drift test asercja.
+type ErrorCode = "missing_arg" | "invalid_eli" | "not_found" | "upstream_error";
+
+function errorResult(text: string, code: ErrorCode) {
+    return {
+        content: [{ type: "text" as const, text: `[${code}] ${text}` }],
+        structuredContent: { error_code: code },
+        isError: true,
+    };
+}
+
 async function handleGetAct(args: Record<string, unknown>) {
     if (typeof args.eli !== "string") {
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: "Blad: parametr 'eli' jest wymagany (np. 'DU/2018/1000').",
-                },
-            ],
-            isError: true,
-        };
+        return errorResult("parametr 'eli' jest wymagany (np. 'DU/2018/1000').", "missing_arg");
     }
-    const { publisher, year, position } = parseEli(args.eli);
+    let parsed;
+    try {
+        parsed = parseEli(args.eli);
+    } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err), "invalid_eli");
+    }
+    const { publisher, year, position } = parsed;
     const path = `/acts/${publisher}/${year}/${position}`;
     const act = await throttled(() => apiGet<EliAct>(path));
     return {
@@ -455,17 +508,15 @@ async function handleGetAct(args: Record<string, unknown>) {
 
 async function handleGetActText(args: Record<string, unknown>) {
     if (typeof args.eli !== "string") {
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: "Blad: parametr 'eli' jest wymagany (np. 'DU/2018/1000').",
-                },
-            ],
-            isError: true,
-        };
+        return errorResult("parametr 'eli' jest wymagany (np. 'DU/2018/1000').", "missing_arg");
     }
-    const { publisher, year, position } = parseEli(args.eli);
+    let parsed;
+    try {
+        parsed = parseEli(args.eli);
+    } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err), "invalid_eli");
+    }
+    const { publisher, year, position } = parsed;
     // Najpierw metadane (zeby wiedziec czy textHTML jest dostepny + zbudowac citation)
     const meta = await throttled(() =>
         apiGet<EliAct>(`/acts/${publisher}/${year}/${position}`),
@@ -519,8 +570,8 @@ async function handleGetActText(args: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-    { name: "mcp-isap", version: "1.0.0" },
-    { capabilities: { tools: {} } },
+    { name: "mcp-isap", version: "1.1.0" },
+    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -528,6 +579,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema,
+        annotations: t.annotations,
     })),
 }));
 
@@ -544,24 +596,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "get_act_text":
                 return await handleGetActText(a);
             default:
-                return {
-                    content: [
-                        { type: "text", text: `Nieznane narzedzie: ${name}` },
-                    ],
-                    isError: true,
-                };
+                return errorResult(`Nieznane narzedzie: ${name}`, "missing_arg");
         }
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: `Blad komunikacji z Sejm ELI API: ${msg}\n\nSprobuj ponownie za chwile.`,
-                },
-            ],
-            isError: true,
-        };
+        // 404 z API -> not_found, reszta -> upstream_error
+        if (/404|not found/i.test(msg)) {
+            return errorResult(`Akt nie znaleziony w Sejm ELI: ${msg}.`, "not_found");
+        }
+        return errorResult(
+            `Blad komunikacji z Sejm ELI API: ${msg}. Sprobuj ponownie za chwile.`,
+            "upstream_error",
+        );
     }
 });
 
