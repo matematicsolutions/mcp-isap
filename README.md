@@ -67,7 +67,7 @@ W `patron/backend/mcp-servers.json`:
   "name": "isap",
   "transport": "stdio",
   "command": "node",
-  "args": ["C:/Users/Wieslaw/mcp-isap/dist/index.js"],
+  "args": ["C:/Users/<TWOJ-UZYTKOWNIK>/mcp-isap/dist/index.js"],
   "enabled": true
 }
 ```
