@@ -3,6 +3,10 @@
   "version": "1.1.1",
   "description": "MCP server - Polish legislation (Dziennik Ustaw / Monitor Polski) via Sejm ELI API (96k+ acts since 1918)",
   "mcpName": "io.github.matematicsolutions/mcp-isap",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matematicsolutions/mcp-isap.git"
+  },
   "main": "dist/index.js",
   "bin": {
     "mcp-isap": "dist/index.js"
