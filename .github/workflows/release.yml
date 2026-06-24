@@ -14,6 +14,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch: {}   # manual re-run of the MCP Registry publish without bumping the package version
 
 permissions:
   contents: read
@@ -21,6 +22,7 @@ permissions:
 
 jobs:
   build-and-publish-npm:
+    if: github.event_name == 'push'   # only on a version tag; skipped on manual dispatch
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -48,6 +50,8 @@ jobs:
 
   publish-mcp-registry:
     needs: build-and-publish-npm
+    # run after a successful npm publish, OR standalone on manual dispatch
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.build-and-publish-npm.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
