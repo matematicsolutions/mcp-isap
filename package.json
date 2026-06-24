@@ -1,8 +1,19 @@
 {
-  "name": "mcp-isap",
+  "name": "@matematicsolutions/mcp-isap",
   "version": "1.1.0",
   "description": "MCP server - Polish legislation (Dziennik Ustaw / Monitor Polski) via Sejm ELI API (96k+ acts since 1918)",
+  "mcpName": "io.github.matematicsolutions/mcp-isap",
   "main": "dist/index.js",
+  "bin": {
+    "mcp-isap": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
