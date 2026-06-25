@@ -1,4 +1,21 @@
 # mcp-isap
+
+## Instalacja (jedna komenda)
+
+Opublikowany na npm + MCP Registry (`io.github.matematicsolutions/mcp-isap`). Uruchomienie bez klonowania:
+
+```bash
+npx -y @matematicsolutions/mcp-isap
+```
+
+Konfiguracja klienta MCP (stdio):
+
+```json
+{ "mcpServers": { "mcp-isap": { "command": "npx", "args": ["-y", "@matematicsolutions/mcp-isap"] } } }
+```
+
+(Budowanie ze źródeł — niżej.)
+
 [![MCP](https://img.shields.io/badge/MCP-Server-blue)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![Node](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org)
 
 MCP server dla **legislacji polskiej** — Dziennik Ustaw (DU) + Monitor Polski (MP)
