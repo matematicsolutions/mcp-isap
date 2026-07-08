@@ -1,73 +1,73 @@
 # mcp-isap
 
-## Instalacja (jedna komenda)
+## Installation (one command)
 
-Opublikowany na npm + MCP Registry (`io.github.matematicsolutions/mcp-isap`). Uruchomienie bez klonowania:
+Published on npm + MCP Registry (`io.github.matematicsolutions/mcp-isap`). Run without cloning:
 
 ```bash
 npx -y @matematicsolutions/mcp-isap
 ```
 
-Konfiguracja klienta MCP (stdio):
+MCP client configuration (stdio):
 
 ```json
 { "mcpServers": { "mcp-isap": { "command": "npx", "args": ["-y", "@matematicsolutions/mcp-isap"] } } }
 ```
 
-(Budowanie ze źródeł — niżej.)
+(Building from source - below.)
 
 [![MCP](https://img.shields.io/badge/MCP-Server-blue)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE) [![Node](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org)
 
-MCP server dla **legislacji polskiej** — Dziennik Ustaw (DU) + Monitor Polski (MP)
-przez oficjalne **Sejm ELI API** (`api.sejm.gov.pl/eli`).
+MCP server for **Polish legislation** - Dziennik Ustaw (Journal of Laws, DU) + Monitor Polski (MP)
+via the official **Sejm ELI API** (`api.sejm.gov.pl/eli`).
 
-## Po co
+## Why
 
-`mcp-saos` (powszechne) + `mcp-nsa` (administracyjne) + `mcp-eu-sparql` (UE)
-ciemnij stronę. **`mcp-isap` dokłada legislację** — ustawy, rozporządzenia,
-obwieszczenia, umowy międzynarodowe. To zamyka triadę:
+`mcp-saos` (general courts) + `mcp-nsa` (administrative) + `mcp-eu-sparql` (EU)
+cover the case-law side. **`mcp-isap` adds legislation** - statutes, regulations,
+official announcements, international agreements. This closes the triad:
 
 ```
-USTAWA + ORZECZNICTWO + PRAWO UE
-   ↓         ↓              ↓
-  ISAP    SAOS+NSA      EUR-Lex
-   ↓         ↓              ↓
-        kancelaria pyta o RODO
-        → 4 konektory równolegle
-        → 4 sekcje cytatów w panelu
+STATUTE + CASE LAW + EU LAW
+   ↓         ↓          ↓
+  ISAP    SAOS+NSA   EUR-Lex
+   ↓         ↓          ↓
+        law firm asks about GDPR
+        → 4 connectors in parallel
+        → 4 citation sections in the panel
 ```
 
-Pokrycie: **96 000+ aktów** od 1918 do dziś. Pełne wsparcie ELI
+Coverage: **96,000+ acts** from 1918 to today. Full ELI support
 (European Legislation Identifier).
 
-## Tooly
+## Tools
 
-- **`search_acts(title?, year?, publisher?, type?, in_force?, limit?)`** —
-  wyszukiwanie po fragmencie tytułu / roku / wydawcy / typie aktu /
-  statusie obowiązywania. `publisher`: `DU` (Dziennik Ustaw) lub `MP`
+- **`search_acts(title?, year?, publisher?, type?, in_force?, limit?)`** -
+  search by title fragment / year / publisher / act type /
+  in-force status. `publisher`: `DU` (Dziennik Ustaw) or `MP`
   (Monitor Polski).
-- **`get_act(eli)`** — szczegóły aktu po ELI (`DU/2018/1000`).
-  Zwraca tytuł, typ, status, wejście w życie, słowa kluczowe,
-  linki do tekstu HTML/PDF i strony ISAP.
-- **`get_act_text(eli)`** — pierwsze 5000 znaków czystego tekstu aktu
-  (bez tagów HTML) + link do pełnej wersji HTML/PDF.
+- **`get_act(eli)`** - act details by ELI (`DU/2018/1000`).
+  Returns title, type, status, entry into force, keywords,
+  links to HTML/PDF text and the ISAP page.
+- **`get_act_text(eli)`** - first 5000 characters of the act's plain text
+  (no HTML tags) + link to the full HTML/PDF version.
 
-Każda zwrotka zawiera `structuredContent.citations` z polami:
+Every response includes `structuredContent.citations` with fields:
 `title`, `url` (ISAP UI), `eli`, `display_address` (`Dz.U. 2018 poz. 1000`),
 `publisher`, `year`, `document_type`, `status`, `in_force`, `promulgation`.
 
-Patron czyta pole automatycznie i wystawia w panelu UI jako sekcję
-**"Akty prawa polskiego (Dz.U. / M.P. — Sejm ELI)"**.
+Patron reads this field automatically and renders it in the UI panel as the section
+**"Polish legal acts (Dz.U. / M.P. - Sejm ELI)"**.
 
 ## Stack
 
-- Node 18+ (wbudowany `fetch`)
+- Node 18+ (built-in `fetch`)
 - `@modelcontextprotocol/sdk`
 - Stdio transport
-- Throttle 500 ms między żądaniami (2 req/s)
-- Zero scrapowania — czyste REST JSON API
+- 500 ms throttle between requests (2 req/s)
+- No scraping - pure REST JSON API
 
-## Build + uruchomienie
+## Build + run
 
 ```bash
 npm install
@@ -75,16 +75,16 @@ npm run build
 node dist/index.js
 ```
 
-## Wpięcie do Patrona
+## Wiring into Patron
 
-W `patron/backend/mcp-servers.json`:
+In `patron/backend/mcp-servers.json`:
 
 ```json
 {
   "name": "isap",
   "transport": "stdio",
   "command": "node",
-  "args": ["C:/Users/<TWOJ-UZYTKOWNIK>/mcp-isap/dist/index.js"],
+  "args": ["C:/Users/<YOUR-USER>/mcp-isap/dist/index.js"],
   "enabled": true
 }
 ```
@@ -98,15 +98,15 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
   | node dist/index.js
 ```
 
-Powinno zwrócić Ustawę o ochronie danych osobowych z 10 maja 2018,
-status `IN_FORCE`, link do ISAP i strukturyzowany cytat.
+Should return the Personal Data Protection Act of 10 May 2018,
+status `IN_FORCE`, a link to ISAP and a structured citation.
 
 ## Lineage
 
-Kontrakt API zaczerpnięty z [`legal-data-hunter/sources/PL/DziennikUrzedowy`](https://github.com/worldwidelaw/legal-sources)
-(Python + REST, MIT). Implementacja TS od zera — bez importu kodu źródłowego.
+API contract derived from [`legal-data-hunter/sources/PL/DziennikUrzedowy`](https://github.com/worldwidelaw/legal-sources)
+(Python + REST, MIT). TS implementation from scratch - no source code imported.
 
-## Licencja
+## License
 
 MIT.
 
@@ -116,11 +116,11 @@ This server is one of five MCP connectors covering Polish jurisdiction +
 EU law, used by [Patron](https://github.com/matematicsolutions/patron)
 (AGPL-3.0) and any other MCP-aware legal AI agent.
 
-- **mcp-isap** (this repo) — Polish legislation (Dz.U. + M.P. via Sejm ELI)
-- [mcp-saos](https://github.com/matematicsolutions/mcp-saos) — common courts, SN, TK, KIO
-- [mcp-nsa](https://github.com/matematicsolutions/mcp-nsa) — NSA + 16 WSA administrative courts
-- [mcp-krs](https://github.com/matematicsolutions/mcp-krs) — Polish company registry (KRS)
-- [mcp-eu-sparql](https://github.com/matematicsolutions/mcp-eu-sparql) — EU law + CJEU (EUR-Lex)
+- **mcp-isap** (this repo) - Polish legislation (Dz.U. + M.P. via Sejm ELI)
+- [mcp-saos](https://github.com/matematicsolutions/mcp-saos) - common courts, SN, TK, KIO
+- [mcp-nsa](https://github.com/matematicsolutions/mcp-nsa) - NSA + 16 WSA administrative courts
+- [mcp-krs](https://github.com/matematicsolutions/mcp-krs) - Polish company registry (KRS)
+- [mcp-eu-sparql](https://github.com/matematicsolutions/mcp-eu-sparql) - EU law + CJEU (EUR-Lex)
 
 
 All five MCP servers share the same `structuredContent.citations`

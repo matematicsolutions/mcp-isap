@@ -1,33 +1,33 @@
 # AGENTS.md - mcp-isap
 
-Plik standardu [agents.md](https://agents.md) (Linux Foundation / Agentic AI Foundation) - kanoniczne instrukcje dla agentow AI pracujacych z tym repozytorium. Czytany natywnie przez Cursor, Codex (OpenAI), Jules (Google), Devin / Windsurf, Aider, Amp, Factory, GitHub Copilot.
+An [agents.md](https://agents.md) standard file (Linux Foundation / Agentic AI Foundation) - canonical instructions for AI agents working with this repository. Read natively by Cursor, Codex (OpenAI), Jules (Google), Devin / Windsurf, Aider, Amp, Factory, GitHub Copilot.
 
-## Cel projektu
+## Project goal
 
-Serwer **MCP (Model Context Protocol)** dla **polskiej legislacji** - **Dziennik Ustaw + Monitor Polski** od 1918 (96k+ aktow) - przez oficjalne **API Sejm ELI** (`api.sejm.gov.pl/eli`).
+An **MCP (Model Context Protocol)** server for **Polish legislation** - **Dziennik Ustaw (Journal of Laws) + Monitor Polski** from 1918 (96k+ acts) - via the official **Sejm ELI API** (`api.sejm.gov.pl/eli`).
 
-Jeden z 5 konektorow polskiego prawa MateMatic ([`mcp-saos`](https://github.com/matematicsolutions/mcp-saos), [`mcp-nsa`](https://github.com/matematicsolutions/mcp-nsa), [`mcp-isap`](https://github.com/matematicsolutions/mcp-isap) (ten), [`mcp-krs`](https://github.com/matematicsolutions/mcp-krs), [`mcp-eu-sparql`](https://github.com/matematicsolutions/mcp-eu-sparql)).
+One of the 5 MateMatic Polish-law connectors ([`mcp-saos`](https://github.com/matematicsolutions/mcp-saos), [`mcp-nsa`](https://github.com/matematicsolutions/mcp-nsa), [`mcp-isap`](https://github.com/matematicsolutions/mcp-isap) (this one), [`mcp-krs`](https://github.com/matematicsolutions/mcp-krs), [`mcp-eu-sparql`](https://github.com/matematicsolutions/mcp-eu-sparql)).
 
-## Kontekst MateMatic (TWARDE OGRANICZENIA)
+## MateMatic context (HARD CONSTRAINTS)
 
-Repo prowadzi [MateMatic Solutions](https://matematicsolutions.com). Konektor jest **infrastruktura zaufania**.
+The repo is maintained by [MateMatic Solutions](https://matematicsolutions.com). The connector is **trust infrastructure**.
 
-- **Kazde wywolanie narzedzia MUSI zwracac `structuredContent.citations`** z: identyfikatorem ELI, tytulem aktu, URL kanonicznym (isap.sejm.gov.pl), datą wejscia w zycie, statusem (obowiazujacy / uchylony).
-- **Stateless** - bez cache PII.
-- **Bez modyfikacji tresci** aktu - tekst urzedowy jest integralny.
-- **Status aktu jest kluczowy** - "obowiazujacy" / "uchylony" / "wygasly" musi byc w citation, inaczej cytowanie wprowadza w blad.
+- **Every tool call MUST return `structuredContent.citations`** with: the ELI identifier, act title, canonical URL (isap.sejm.gov.pl), entry-into-force date, status (in force / repealed).
+- **Stateless** - no PII cache.
+- **No content modification** of the act - the official text is integral.
+- **Act status is critical** - "in force" / "repealed" / "expired" must be in the citation, otherwise the citation is misleading.
 
-## Narzedzia MCP (tools contract)
+## MCP tools (tools contract)
 
-| Tool | Parametry kluczowe | Zwraca |
+| Tool | Key parameters | Returns |
 |---|---|---|
-| `search_acts` | `query`, `publisher?` (DU/MP), `year_from?`, `year_to?` | lista aktow + citations |
-| `get_act` | `eli` (identyfikator ELI) | metadata aktu + linki do tekstow |
-| `get_act_text` | `eli`, `format?` (html/pdf) | pelny tekst aktu w wybranym formacie |
+| `search_acts` | `query`, `publisher?` (DU/MP), `year_from?`, `year_to?` | list of acts + citations |
+| `get_act` | `eli` (ELI identifier) | act metadata + links to texts |
+| `get_act_text` | `eli`, `format?` (html/pdf) | full act text in the chosen format |
 
-Pelny opis: `src/index.ts` + `README.md`.
+Full description: `src/index.ts` + `README.md`.
 
-## Build i test
+## Build and test
 
 ```bash
 npm install        # Node 20+
@@ -38,35 +38,35 @@ npm run dev        # ts-node src/index.ts
 
 Test: `npx @modelcontextprotocol/inspector node dist/index.js`.
 
-## Zasady kodu
+## Code rules
 
 - **TypeScript strict**.
 - **`@modelcontextprotocol/sdk` ^1.12.0**.
-- **API Sejm ELI jest oficjalne** - mozemy uderzac normalnie, ale uzywamy User-Agent z kontaktem MateMatic.
-- **Bez polskich znakow w commit messages**.
-- **CHANGELOG bump przy zmianie kontraktu**.
+- **The Sejm ELI API is official** - we may call it normally, but we use a User-Agent with a MateMatic contact.
+- **No Polish characters in commit messages**.
+- **CHANGELOG bump on contract change**.
 
-## Czego NIE robic (twarde reguly)
+## What NOT to do (hard rules)
 
-- **NIE pomijaj statusu aktu** w citation - akt uchylony cytowany jako obowiazujacy = blad merytoryczny.
-- **NIE dodawaj tools z zewnetrznych zrodel legislacji** (np. konsolidowane teksty komercyjne) - konektor ma byc single-source ELI.
-- **NIE modyfikuj tekstu urzedowego**.
-- **NIE cachuj zapytan z PII**.
+- **Do NOT omit act status** in the citation - a repealed act cited as in force = a substantive error.
+- **Do NOT add tools from external legislation sources** (e.g. commercial consolidated texts) - the connector must be single-source ELI.
+- **Do NOT modify the official text**.
+- **Do NOT cache queries containing PII**.
 
-## Zrodla prawdy
+## Sources of truth
 
 1. [README.md](./README.md)
 2. [CHANGELOG.md](./CHANGELOG.md)
 3. `src/index.ts`
-4. [API Sejm ELI dokumentacja](https://api.sejm.gov.pl/eli/openapi/) - upstream
-5. [ISAP - Internetowy System Aktow Prawnych](https://isap.sejm.gov.pl) - frontend uzytkownika
+4. [Sejm ELI API documentation](https://api.sejm.gov.pl/eli/openapi/) - upstream
+5. [ISAP - Internetowy System Aktow Prawnych](https://isap.sejm.gov.pl) - user frontend
 
-## Kompatybilnosc agentow
+## Agent compatibility
 
-Standard [AGENTS.md](https://agents.md). Dla Claude Code dodatkowo plik [CLAUDE.md](./CLAUDE.md).
+The [AGENTS.md](https://agents.md) standard. For Claude Code, additionally the [CLAUDE.md](./CLAUDE.md) file.
 
-## Licencja
+## License
 
-**MIT** - patrz [LICENSE](./LICENSE).
+**MIT** - see [LICENSE](./LICENSE).
 
-Cytowanie: *MateMatic Solutions (2026), mcp-isap - MCP server dla polskiej legislacji (Sejm ELI / ISAP), https://github.com/matematicsolutions/mcp-isap, MIT.*
+Citation: *MateMatic Solutions (2026), mcp-isap - MCP server for Polish legislation (Sejm ELI / ISAP), https://github.com/matematicsolutions/mcp-isap, MIT.*
