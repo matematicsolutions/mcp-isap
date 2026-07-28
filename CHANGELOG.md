@@ -3,6 +3,33 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Argument type validation against the declared `inputSchema`.** The SDK's
+  `setRequestHandler(CallToolRequestSchema, ...)` validates only the request envelope, never
+  the `arguments` payload, so a tool declaring ``year` as a number` happily accepted the wrong type and
+  forwarded the garbage downstream. A gate now runs before dispatch and rejects type
+  mismatches with the new `invalid_args` error code. Union types (`type: ["string","number"]`)
+  are normalised, so such properties are validated instead of silently skipped.
+- New error code **`invalid_args`** (wrong argument *type*). A *missing* required argument
+  still returns `missing_arg`, exactly as before - the two cases are deliberately kept apart
+  so this change does not silently rename an existing error.
+- `test/invalid-args.mjs` - generic conformance test. It reads `tools/list` from the built
+  server over real MCP stdio and derives the cases from the declared schema, so a new tool is
+  covered automatically. 13 checks: wrong type per property, missing required, plus a
+  positive control proving well-typed calls still reach the upstream.
+
+### Notes
+
+- Found by an external audit: `Ahmad-Faraj/mcp-conformance`, check `tools-call-invalid-args`.
+- `enum` values are intentionally **not** enforced - out-of-enum values currently reach the
+  upstream and sometimes work, so tightening that is a behaviour change wider than the defect
+  being fixed.
+- Version numbers untouched: releasing bumps `package.json`, `server.json` and the
+  `serverInfo` literal in `src/index.ts` together.
+
 ## [1.1.0] — 2026-05-25
 
 Retrofit do kanonu MCP MateMatic (pattern z dograh-hq/dograh v1.31.0, BSD-2). Backward-compatible.
