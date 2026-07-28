@@ -23,7 +23,8 @@
     "prepare": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "drift": "node test/drift.mjs"
+    "drift": "node test/drift.mjs",
+    "test:conformance": "node test/invalid-args.mjs"
   },
   "keywords": [
     "mcp",

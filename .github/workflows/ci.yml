@@ -26,5 +26,11 @@ jobs:
       - name: TypeScript build
         run: npm run build
 
+      - name: Drift test
+        run: npm run drift
+
+      - name: Conformance - argument validation
+        run: npm run test:conformance
+
       - name: Verify dist artifact
         run: ls -la dist/index.js
