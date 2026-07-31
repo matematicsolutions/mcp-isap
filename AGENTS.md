@@ -21,11 +21,27 @@ The repo is maintained by [MateMatic Solutions](https://matematicsolutions.com).
 
 | Tool | Key parameters | Returns |
 |---|---|---|
-| `search_acts` | `query`, `publisher?` (DU/MP), `year_from?`, `year_to?` | list of acts + citations |
+| `search_acts` | `title?`, `year?`, `publisher?` (DU/MP), `type?`, `in_force?`, `limit?` | list of acts + citations |
 | `get_act` | `eli` (ELI identifier) | act metadata + links to texts |
-| `get_act_text` | `eli`, `format?` (html/pdf) | full act text in the chosen format |
+| `get_act_text` | `eli`, `page?` (1-based), `search_text?` | one 5000-character page of the act text, or the fragment around `search_text` |
 
 Full description: `src/index.ts` + `README.md`.
+
+### `get_act_text` - which point in time the text is from
+
+Sejm ELI serves **the text as promulgated** under `text.html`. For a base act that is the
+original wording, not the law in force: `DU/1964/93` (Civil Code) art. 118 still reads
+"jednostkami gospodarki uspolecznionej" and a ten-year limitation period. The wording in
+force lives in the newest consolidated-text announcement (`obwieszczenie`).
+
+`structuredContent.text_version` states which one the caller got - `tekst_jednolity`,
+`tekst_jednolity_nieaktualny`, `tekst_ogloszony_istnieje_nowszy_jednolity`,
+`tekst_ogloszony` - and every variant except the first also carries a visible `[!] UWAGA`
+block in the content. **Do not remove either signal**: without them the tool hands back
+repealed wording that looks current.
+
+Acts served only as PDF return `isError` with `text_unavailable_use_pdf`. That is not the
+text of the provision - never present it as one.
 
 ## Build and test
 

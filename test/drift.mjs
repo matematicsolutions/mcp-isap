@@ -11,23 +11,47 @@ const SRC = readFileSync(join(__dirname, "..", "src", "index.ts"), "utf-8");
 
 const failures = [];
 
+// Kody bledow czytamy PRZED sekcja tooli - referencja do kodu w INSTRUCTIONS nie
+// jest referencja do toola, a bez tej listy check nizej oskarzalby `not_found`
+// o bycie nieistniejacym toolem.
+const errorCodeMatch = SRC.match(/type ErrorCode\s*=\s*([^;]+);/);
+const declaredCodes = new Set(
+    errorCodeMatch ? [...errorCodeMatch[1].matchAll(/"(\w+)"/g)].map((m) => m[1]) : [],
+);
+
 const instructionsMatch = SRC.match(/const INSTRUCTIONS = `([\s\S]*?)`;/);
 if (!instructionsMatch) {
     failures.push("Nie znaleziono const INSTRUCTIONS w src/index.ts");
 } else {
-    const instructions = instructionsMatch[1];
+    // W zrodle INSTRUCTIONS to template literal, wiec kazdy backtick jest
+    // ZAESCAPOWANY (\`tool\`). Bez tego kroku regex ponizej nie trafial NIGDY i
+    // caly check referencji byl cicho martwy - "OK drift" nie znaczylo nic.
+    const instructions = instructionsMatch[1].replace(/\\`/g, "`");
 
     const toolsBlock = SRC.match(/const TOOLS\s*=\s*\[([\s\S]*?)\]\s*as const;|const TOOLS\s*=\s*\[([\s\S]*?)\];/);
     const toolsSource = toolsBlock ? (toolsBlock[1] || toolsBlock[2] || "") : SRC;
     const toolsMatches = [...toolsSource.matchAll(/name:\s*"([a-z][a-z0-9_]+)"/g)];
     const registered = new Set(toolsMatches.map((m) => m[1]));
 
+    const skip = new Set([
+        "isError", "true", "false", "null", "undefined", "structuredContent",
+        // nazwy pol kontraktu, nie toole
+        "search_text", "text_version", "consolidated_text_eli", "text_available",
+        "has_more", "total_pages", "in_force", "display_address", "error_code",
+        "superseded_by_eli", "pdf_urls", "text_format",
+    ]);
     const referenced = new Set();
     for (const m of instructions.matchAll(/`([a-z][a-z0-9_]{3,})`/g)) {
-        const skip = new Set([
-            "isError", "true", "false", "null", "undefined", "structuredContent",
-        ]);
-        if (!skip.has(m[1])) referenced.add(m[1]);
+        if (!skip.has(m[1]) && !declaredCodes.has(m[1])) referenced.add(m[1]);
+    }
+    if (referenced.size === 0) {
+        // Zero trafien znaczy, ze regex przestal pasowac do zrodla - to nie jest
+        // "wszystko OK", to jest zepsuty test. Dokladnie ta klasa co bug, ktory
+        // ten konektor naprawia: sukces bez danych.
+        failures.push(
+            "Check referencji nie wykryl ZADNEJ nazwy w backtickach - regex nie pasuje " +
+                "juz do formatu INSTRUCTIONS. Test nic nie sprawdza.",
+        );
     }
 
     for (const ref of referenced) {

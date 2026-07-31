@@ -32,5 +32,8 @@ jobs:
       - name: Conformance - argument validation
         run: npm run test:conformance
 
+      - name: Regression - get_act_text (offline fixtures)
+        run: npm run test:act-text
+
       - name: Verify dist artifact
         run: ls -la dist/index.js

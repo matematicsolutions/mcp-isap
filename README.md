@@ -49,8 +49,16 @@ Coverage: **96,000+ acts** from 1918 to today. Full ELI support
 - **`get_act(eli)`** - act details by ELI (`DU/2018/1000`).
   Returns title, type, status, entry into force, keywords,
   links to HTML/PDF text and the ISAP page.
-- **`get_act_text(eli)`** - first 5000 characters of the act's plain text
-  (no HTML tags) + link to the full HTML/PDF version.
+- **`get_act_text(eli, page?, search_text?)`** - the act's plain text (no HTML
+  tags), paginated at 5000 characters per page. Iterate `page` while
+  `structuredContent.pagination.has_more` is true, or pass `search_text`
+  (e.g. `"Art. 118."`) to get the fragment around the first hit in one call.
+  `structuredContent.text_version` says whether this is a consolidated text or
+  the wording **as promulgated** - Sejm ELI serves the original wording for base
+  acts, so for the law in force fetch the newest consolidated-text announcement
+  listed in `consolidated_text_eli`. Acts published only as PDF return the
+  `text_unavailable_use_pdf` error with links, never prose standing in for the
+  provision.
 
 Every response includes `structuredContent.citations` with fields:
 `title`, `url` (ISAP UI), `eli`, `display_address` (`Dz.U. 2018 poz. 1000`),

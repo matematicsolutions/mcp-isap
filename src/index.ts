@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 // MCP server - Polish legislation (Dziennik Ustaw / Monitor Polski) via Sejm ELI API.
 //
 // Endpoint: https://api.sejm.gov.pl/eli
@@ -109,6 +109,13 @@ interface EliAct {
     keywords?: string[];
     textHTML?: boolean;
     textPDF?: boolean;
+    // Lista plikow tresci: {type: "H"|"O"|"T"|"U"|"I", fileName}. Dla wielu aktow
+    // (zwlaszcza obwieszczen z tekstem jednolitym) NIE ma pozycji "H" - jest tylko PDF.
+    texts?: Array<{ fileName?: string; type?: string }>;
+    // Klucze maja polskie znaki, m.in. "Inf. o tekscie jednolitym" (ten akt MA
+    // nowszy tekst jednolity) i "Tekst jednolity dla aktu" (ten akt JEST tekstem
+    // jednolitym innego). Wartosci: {id} albo {act:{ELI}} - zaleznie od endpointu.
+    references?: Record<string, Array<{ id?: string; act?: { ELI?: string } }>>;
 }
 
 interface EliSearchResponse {
@@ -242,6 +249,62 @@ function formatActDetails(act: EliAct): string {
     return lines.join("\n");
 }
 
+// --- Wersja tekstu i linki do PDF ------------------------------------------
+// Sejm ELI serwuje pod /text.html TEKST OGLOSZONY danego aktu. Dla aktu bazowego
+// (np. Kodeks cywilny DU/1964/93) jest to brzmienie z dnia ogloszenia - dla KC
+// rok 1964 - a NIE stan obowiazujacy. Brzmienie aktualne siedzi w najnowszym
+// obwieszczeniu z tekstem jednolitym. Bez tego rozroznienia tool zwraca tresc
+// wygladajaca na aktualna i model cytuje uchylone brzmienie jako obowiazujace.
+
+// Strona tresci. Kodeks ma ~400 tys. znakow - dotad tool oddawal SZTYWNO pierwsze
+// 5000 i nie mowil, ze reszta istnieje, wiec art. 118 KC (znak ~40 tys.) byl
+// nieosiagalny mimo "sukcesu". Teraz to jest jedna strona z N, z licznikiem.
+const TEXT_PAGE_CHARS = 5000;
+
+const REF_HAS_CONSOLIDATED = "Inf. o tek"; // prefiks - klucz ma polskie znaki
+const REF_CONSOLIDATED_OF = "Tekst jednolity dla aktu";
+
+const TEXT_TYPE_LABELS: Record<string, string> = {
+    O: "tekst ogloszony",
+    T: "tekst jednolity",
+    U: "tekst ujednolicony",
+    I: "tekst ogloszony (obraz)",
+    H: "HTML",
+};
+
+function refIds(meta: EliAct, keyPrefix: string): string[] {
+    const refs = meta.references;
+    if (!refs) return [];
+    const key = Object.keys(refs).find((k) => k.startsWith(keyPrefix));
+    if (!key) return [];
+    return (refs[key] ?? [])
+        .map((e) => e?.id ?? e?.act?.ELI)
+        .filter((v): v is string => typeof v === "string" && v.length > 0);
+}
+
+function pdfLinks(
+    meta: EliAct,
+    publisher: string,
+    year: number,
+    position: number,
+): Array<{ label: string; url: string }> {
+    const base = `${BASE_URL}/acts/${publisher}/${year}/${position}`;
+    const out: Array<{ label: string; url: string }> = [];
+    const seen = new Set<string>();
+    if (meta.textPDF) {
+        out.push({ label: "domyslny", url: `${base}/text.pdf` });
+        seen.add(`${base}/text.pdf`);
+    }
+    for (const t of meta.texts ?? []) {
+        if (!t?.fileName || !/\.pdf$/i.test(t.fileName)) continue;
+        const url = `${base}/text/${t.type ?? "O"}/${t.fileName}`;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        out.push({ label: TEXT_TYPE_LABELS[t.type ?? ""] ?? `typ ${t.type}`, url });
+    }
+    return out;
+}
+
 function stripHtmlTags(s: string): string {
     return s
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -269,14 +332,22 @@ const INSTRUCTIONS = `Ten serwer MCP udostepnia polska legislacje (Dziennik Usta
 ### Szukanie ustawy / rozporzadzenia
 1. \`search_acts\` - po tytule (fragment, fleksja PL: "ochronie" znajdzie "o ochronie..."), roku, publisher (DU=Dziennik Ustaw, MP=Monitor Polski), typie aktu, statusie obowiazywania. Maks 50 wynikow.
 2. \`get_act\` - po znalezieniu ELI (np. \`DU/2018/1000\`) pobierz metadane: tytul, typ, status, daty, slowa kluczowe, linki HTML/PDF/ISAP.
-3. \`get_act_text\` - pelny tekst aktu HTML (pierwsze 5000 znakow czystego tekstu + link do pelnej tresci). Uzywaj zeby ocenic czy to wlasciwy akt.
+3. \`get_act_text\` - tekst aktu, STRONAMI po 5000 znakow. Zeby dotrzec do konkretnego przepisu podaj \`search_text\` (np. "Art. 118.") - dostaniesz fragment wokol tej frazy jednym wywolaniem. Bez tego iteruj \`page\` (od 1) az \`pagination.has_more\` = false.
+
+## Ktora to wersja tekstu (czytaj ZANIM zacytujesz)
+
+Sejm ELI serwuje pod HTML **tekst ogloszony** danego aktu - czyli brzmienie z dnia ogloszenia, NIE stan na dzis.
+
+- Akt bazowy (np. Kodeks cywilny DU/1964/93) zwraca brzmienie PIERWOTNE. Dla KC jest to tekst z 1964 r., w ktorym np. art. 118 mowi o "jednostkach gospodarki uspolecznionej" i terminie dziesieciu lat - brzmienie dawno nieobowiazujace.
+- Brzmienie obowiazujace jest w najnowszym **obwieszczeniu z tekstem jednolitym**. Pole \`structuredContent.text_version\` mowi wprost, co dostales: tekst_jednolity (aktualny), tekst_jednolity_nieaktualny (byl tekstem jednolitym, ale wyszlo nowsze obwieszczenie - patrz \`superseded_by_eli\`), tekst_ogloszony_istnieje_nowszy_jednolity, tekst_ogloszony.
+- Regula: pytanie o TRESC przepisu obowiazujacego -> najpierw najnowszy tekst jednolity, dopiero potem akt bazowy. Tylko \`text_version\` = tekst_jednolity przy \`in_force\` = IN_FORCE jest dowodem brzmienia na dzis. Pozostale warianty to material historyczny i kazdy z nich niesie widoczne ostrzezenie w tresci - przepisz je uzytkownikowi zamiast je pomijac.
 
 ## Twarde ograniczenia
 
 - **Status aktu KLUCZOWY** - obowiazujacy / uchylony / wygasly musi byc w odpowiedzi koncowej. Cytowanie aktu uchylonego jako obowiazujacy = blad merytoryczny.
 - **ELI w cytowaniach** - format \`PUBLISHER/YEAR/POSITION\` (np. DU/2018/1000) lub kompakt \`WDU20180001000\`. Bez ELI brak cytowalnosci.
 - **Bez modyfikacji tresci** - tekst urzedowy integralny, NIE parafrazuj.
-- **Tekst HTML nie zawsze dostepny** - dla starszych aktow (przed 2012 czesto) jest tylko PDF. \`get_act_text\` zwraca info + link do PDF.
+- **Tekst HTML nie zawsze istnieje** - czesc aktow (w tym swiezsze obwieszczenia z tekstem jednolitym) ma wylacznie PDF. Wtedy \`get_act_text\` zwraca BLAD \`text_unavailable_use_pdf\` z linkami do PDF - to nie jest tresc przepisu i nie wolno na tej podstawie twierdzic, jak przepis brzmi. Pobierz PDF poza tym konektorem albo powiedz uzytkownikowi, ze tresci nie masz.
 - **\`structuredContent.citations\`**: title, url (isap.sejm.gov.pl), eli, status, in_force, type, promulgation_date. Cytuj w odpowiedzi.
 
 ## Iteracja po bledach
@@ -285,7 +356,8 @@ Tool zwraca \`isError: true\` + tekst z prefixem \`[code]\`. Typowe kody:
 - \`missing_arg\` - brakujacy \`eli\` w get_act / get_act_text. Przeczytaj inputSchema.
 - \`invalid_args\` - parametr ma zly TYP wobec inputSchema (np. year jako tekst, in_force jako string). Popraw typ i powtorz - to blad wywolania, nie zrodla.
 - \`invalid_eli\` - format ELI nieprawidlowy. Wymagany "DU/2018/1000" lub "MP/2024/123" lub kompakt "WDU20180001000".
-- \`not_found\` - akt o danym ELI nie ma w bazie. Sprobuj search_acts.
+- \`not_found\` - akt o danym ELI nie ma w bazie ALBO fraza z \`search_text\` nie wystepuje w tekscie aktu. W drugim przypadku sprawdz pisownie z polskimi znakami - wyszukiwarka ISAP tez jest na nie wrazliwa ("postepowania" da 0 wynikow, "postÄ™powania" da komplet).
+- \`text_unavailable_use_pdf\` - akt istnieje, ale jego tresci NIE MA w HTML (tylko PDF). Odpowiedz zawiera linki do PDF i ELI tekstow jednolitych do sprobowania. NIE traktuj tego jako braku przepisu ani nie zgaduj jego brzmienia.
 - \`upstream_error\` - blad Sejm ELI API. Retry raz przed surface do uzytkownika.
 
 ## Styl odpowiedzi
@@ -297,10 +369,10 @@ Tool zwraca \`isError: true\` + tekst z prefixem \`[code]\`. Typowe kody:
 const PUBLISHERS = ["DU", "MP"] as const;
 const TYPES = [
     "Ustawa",
-    "Rozporządzenie",
+    "RozporzÄ…dzenie",
     "Obwieszczenie",
-    "Uchwała",
-    "Umowa międzynarodowa",
+    "UchwaĹ‚a",
+    "Umowa miÄ™dzynarodowa",
     "Konstytucja",
     "Postanowienie",
 ] as const;
@@ -385,15 +457,34 @@ const TOOLS = [
         name: "get_act_text",
         annotations: READ_ONLY_ANNOTATIONS,
         description:
-            "Pobiera tekst aktu w formacie HTML (jesli dostepny). Zwraca pierwsze " +
-            "5000 znakow czystego tekstu (bez tagow) plus link do pelnego HTML/PDF. " +
-            "Uzywaj po get_act zeby ocenic czy akt jest tym, czego szuka uzytkownik.",
+            "Pobiera tekst aktu, stronami po 5000 znakow czystego tekstu. Odpowiedz " +
+            "konczy sie licznikiem `[paginacja] strona N z M`, a `structuredContent." +
+            "pagination` ma page/total_pages/has_more - iteruj `page` az has_more=false. " +
+            "Zeby trafic w konkretny przepis bez przewijania, podaj `search_text` " +
+            "(np. 'Art. 118.') - tool zwroci fragment wokol tej frazy. " +
+            "UWAGA: dla aktu bazowego HTML to tekst OGLOSZONY (brzmienie pierwotne), " +
+            "nie stan obowiazujacy - `structuredContent.text_version` to rozroznia. " +
+            "Bledy: `text_unavailable_use_pdf` (akt ma tylko PDF), `not_found` " +
+            "(brak frazy albo aktu), `invalid_eli`.",
         inputSchema: {
             type: "object",
             properties: {
                 eli: {
                     type: "string",
                     description: "ELI aktu, np. 'DU/2018/1000'.",
+                },
+                page: {
+                    type: "number",
+                    description:
+                        "Numer strony tekstu, liczony od 1 (5000 znakow na strone). Domyslnie 1.",
+                    minimum: 1,
+                },
+                search_text: {
+                    type: "string",
+                    description:
+                        "Fraza do znalezienia w tekscie aktu - zwraca fragment wokol pierwszego " +
+                        "trafienia zamiast strony (np. 'Art. 118.'). Ma pierwszenstwo przed `page`. " +
+                        "Wielkosc liter bez znaczenia, polskie znaki MAJA znaczenie.",
                 },
             },
             required: ["eli"],
@@ -476,7 +567,13 @@ async function handleSearch(args: Record<string, unknown>) {
 }
 
 // Strukturalne kody bledow - drift test asercja.
-type ErrorCode = "missing_arg" | "invalid_args" | "invalid_eli" | "not_found" | "upstream_error";
+type ErrorCode =
+    | "missing_arg"
+    | "invalid_args"
+    | "invalid_eli"
+    | "not_found"
+    | "upstream_error"
+    | "text_unavailable_use_pdf";
 
 function errorResult(text: string, code: ErrorCode) {
     return {
@@ -518,51 +615,187 @@ async function handleGetActText(args: Record<string, unknown>) {
         return errorResult(err instanceof Error ? err.message : String(err), "invalid_eli");
     }
     const { publisher, year, position } = parsed;
-    // Najpierw metadane (zeby wiedziec czy textHTML jest dostepny + zbudowac citation)
+    const page = typeof args.page === "number" ? Math.max(1, Math.floor(args.page)) : 1;
+    const needle =
+        typeof args.search_text === "string" && args.search_text.trim()
+            ? args.search_text.trim()
+            : null;
+
+    // Najpierw metadane (czy jest HTML, ktora to wersja tekstu, citation).
     const meta = await throttled(() =>
         apiGet<EliAct>(`/acts/${publisher}/${year}/${position}`),
     );
-    if (!meta.textHTML) {
-        const lines = [
-            `Tekst HTML dla ${deriveEli(meta)} nie jest dostepny przez API.`,
-            "",
-            meta.textPDF
-                ? `Pobierz PDF: ${BASE_URL}/acts/${publisher}/${year}/${position}/text.pdf`
-                : "Brak tekstu (PDF rowniez niedostepny).",
-            "",
-            `Strona ISAP (UI): ${isapUiUrl(meta)}`,
-        ];
-        return {
-            content: [{ type: "text", text: lines.join("\n") }],
-            structuredContent: { citations: [buildCitation(meta)] },
-        };
-    }
+    const eli = deriveEli(meta);
+    const newerConsolidated = refIds(meta, REF_HAS_CONSOLIDATED);
+    const consolidatedOf = refIds(meta, REF_CONSOLIDATED_OF);
+    const pdfs = pdfLinks(meta, publisher, year, position);
+
+    // Brak HTML = brak tresci przepisu. To MUSI byc blad, nie sukces z proza w
+    // polu tresci: wywolujacy nie odroznial "przepis brzmi tak" od "nie mam tekstu"
+    // i albo przyznawal brak danych, albo zaczynal zmyslac.
+    const failUnavailable = (why: string) =>
+        ({
+            content: [
+                {
+                    type: "text" as const,
+                    text:
+                        `[text_unavailable_use_pdf] ${why} dla ${eli}. ` +
+                        `Tresc tego aktu istnieje WYLACZNIE jako PDF - ten tool jej nie zwroci.\n\n` +
+                        (pdfs.length
+                            ? pdfs.map((p) => `PDF (${p.label}): ${p.url}`).join("\n")
+                            : "Brak tekstu (PDF rowniez niedostepny).") +
+                        (newerConsolidated.length
+                            ? `\n\nTeksty jednolite tego aktu (sprobuj get_act_text na najnowszym): ` +
+                              newerConsolidated.slice(0, 3).join(", ")
+                            : "") +
+                        `\n\nStrona ISAP (UI): ${isapUiUrl(meta)}`,
+                },
+            ],
+            structuredContent: {
+                error_code: "text_unavailable_use_pdf" as ErrorCode,
+                citations: [buildCitation(meta)],
+                text_available: false,
+                text_format: "pdf",
+                pdf_urls: pdfs.map((p) => p.url),
+                consolidated_text_eli: newerConsolidated,
+            },
+            isError: true,
+        });
+
+    if (!meta.textHTML) return failUnavailable("Tekst HTML nie jest udostepniany przez API");
+
     const html = await throttled(() =>
         apiGetText(`/acts/${publisher}/${year}/${position}/text.html`),
     );
     const plain = stripHtmlTags(html);
-    const preview = plain.slice(0, 5000);
+    // HTTP 200 z pustym cialem zdarza sie na tym API - pusty tekst to brak tekstu.
+    if (!plain) return failUnavailable("Endpoint text.html zwrocil pusta odpowiedz");
+
+    const totalPages = Math.max(1, Math.ceil(plain.length / TEXT_PAGE_CHARS));
+    let start: number;
+    let mode: "page" | "fragment";
+    let occurrences = 0;
+
+    if (needle) {
+        const hay = plain.toLowerCase();
+        const nee = needle.toLowerCase();
+        let idx = hay.indexOf(nee);
+        if (idx < 0) {
+            return errorResult(
+                `Fraza "${needle}" nie wystepuje w tekscie aktu ${eli} ` +
+                    `(${plain.length} znakow). Sprawdz pisownie (polskie znaki!) albo ` +
+                    `przejrzyj tekst stronami: page=1..${totalPages}.`,
+                "not_found",
+            );
+        }
+        for (let i = idx; i >= 0; i = hay.indexOf(nee, i + 1)) occurrences++;
+        start = Math.max(0, idx - 200); // kontekst przed trafieniem
+        mode = "fragment";
+    } else {
+        start = Math.min((page - 1) * TEXT_PAGE_CHARS, (totalPages - 1) * TEXT_PAGE_CHARS);
+        mode = "page";
+    }
+
+    const end = Math.min(start + TEXT_PAGE_CHARS, plain.length);
+    const body = plain.slice(start, end);
+    const currentPage = Math.floor(start / TEXT_PAGE_CHARS) + 1;
+    const nextPage = end < plain.length ? Math.floor(end / TEXT_PAGE_CHARS) + 1 : null;
+
+    const isConsolidated = consolidatedOf.length > 0;
+    const outOfForce = meta.inForce !== undefined && meta.inForce !== "IN_FORCE";
+
+    // Wygasly tekst jednolity to druga pulapka tej samej klasy: tresc jest
+    // prawdziwa, ale to brzmienie sprzed kolejnego obwieszczenia. Nastepce
+    // znajdziemy przez akt bazowy - jedno dodatkowe zapytanie, tylko w tej galezi.
+    let supersededBy: string[] = [];
+    if (isConsolidated && outOfForce) {
+        try {
+            const b = parseEli(consolidatedOf[0]);
+            const baseMeta = await throttled(() =>
+                apiGet<EliAct>(`/acts/${b.publisher}/${b.year}/${b.position}`),
+            );
+            supersededBy = refIds(baseMeta, REF_HAS_CONSOLIDATED).filter((x) => x !== eli);
+        } catch {
+            supersededBy = []; // best-effort - brak nastepcy nie kasuje ostrzezenia nizej
+        }
+    }
+
+    const textVersion = isConsolidated
+        ? outOfForce
+            ? "tekst_jednolity_nieaktualny"
+            : "tekst_jednolity"
+        : newerConsolidated.length
+          ? "tekst_ogloszony_istnieje_nowszy_jednolity"
+          : "tekst_ogloszony";
+
     const lines = [
-        `=== TEKST AKTU ${deriveEli(meta)} ===`,
+        `=== TEKST AKTU ${eli} (strona ${currentPage} z ${totalPages}) ===`,
         "",
-        `Tytul: ${meta.title}`,
-        `URL HTML: ${BASE_URL}/acts/${publisher}/${year}/${position}/text.html`,
-        meta.textPDF
-            ? `URL PDF : ${BASE_URL}/acts/${publisher}/${year}/${position}/text.pdf`
-            : "",
-        `Strona ISAP: ${isapUiUrl(meta)}`,
-        "",
-        `--- Tresc (pierwsze ${preview.length} znakow z ${plain.length} lacznie) ---`,
-        preview,
-    ].filter(Boolean);
-    if (plain.length > preview.length) {
+        `Tytul : ${meta.title}`,
+        `Status: ${meta.status ?? "?"} | Stan: ${meta.inForce ?? "?"}`,
+        `Wersja tekstu: ${textVersion}`,
+    ];
+    if (textVersion === "tekst_ogloszony_istnieje_nowszy_jednolity") {
         lines.push(
-            `[...] Skrocono. Pelny tekst: ${BASE_URL}/acts/${publisher}/${year}/${position}/text.html`,
+            "",
+            `[!] UWAGA - to jest tekst OGLOSZONY (brzmienie z dnia ogloszenia aktu, ` +
+                `${meta.promulgation ?? "data nieznana"}), a NIE stan prawny na dzis. ` +
+                `Akt byl nowelizowany. Brzmienie obowiazujace jest w najnowszym tekscie ` +
+                `jednolitym: ${newerConsolidated.slice(0, 3).join(", ")}. ` +
+                `NIE cytuj ponizszej tresci jako obowiazujacej bez sprawdzenia tam.`,
+        );
+    } else if (outOfForce) {
+        lines.push(
+            "",
+            `[!] UWAGA - ten akt NIE OBOWIAZUJE (${meta.status ?? "?"} / ${meta.inForce}). ` +
+                (supersededBy.length
+                    ? `Nowszy tekst jednolity tej ustawy: ${supersededBy.slice(0, 3).join(", ")}. `
+                    : "") +
+                `Ponizsza tresc jest materialem historycznym - NIE cytuj jej jako stanu ` +
+                `prawnego na dzis.`,
         );
     }
+    lines.push(
+        "",
+        `URL HTML: ${BASE_URL}/acts/${publisher}/${year}/${position}/text.html`,
+        ...pdfs.map((p) => `URL PDF (${p.label}): ${p.url}`),
+        `Strona ISAP: ${isapUiUrl(meta)}`,
+        "",
+    );
+    if (mode === "fragment") {
+        lines.push(
+            `--- Fragment wokol frazy "${needle}" ` +
+                `(trafien w akcie: ${occurrences}, pokazano pierwsze; znaki ${start}-${end} z ${plain.length}) ---`,
+        );
+    } else {
+        lines.push(`--- Tresc (znaki ${start}-${end} z ${plain.length}) ---`);
+    }
+    lines.push(body, "");
+    lines.push(
+        nextPage
+            ? `[paginacja] strona ${currentPage} z ${totalPages} | has_more: true | ` +
+                  `dalej: get_act_text(eli="${eli}", page=${nextPage})`
+            : `[paginacja] strona ${currentPage} z ${totalPages} | has_more: false | koniec tekstu`,
+    );
+
     return {
         content: [{ type: "text", text: lines.join("\n") }],
-        structuredContent: { citations: [buildCitation(meta)] },
+        structuredContent: {
+            citations: [buildCitation(meta)],
+            text_available: true,
+            text_version: textVersion,
+            consolidated_text_eli: newerConsolidated,
+            superseded_by_eli: supersededBy,
+            pagination: {
+                page: currentPage,
+                total_pages: totalPages,
+                total_chars: plain.length,
+                char_start: start,
+                char_end: end,
+                has_more: nextPage !== null,
+                next_page: nextPage,
+            },
+        },
     };
 }
 
@@ -639,7 +872,7 @@ function validateArgs(
 }
 
 const server = new Server(
-    { name: "mcp-isap", version: "1.2.0" },
+    { name: "mcp-isap", version: "1.3.0" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
 );
 
