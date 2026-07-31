@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 // MCP server - Polish legislation (Dziennik Ustaw / Monitor Polski) via Sejm ELI API.
 //
 // Endpoint: https://api.sejm.gov.pl/eli
