@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -57,7 +57,7 @@ jobs:
       contents: read
       id-token: write   # OIDC login to the MCP Registry
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mcp-publisher
         run: |
