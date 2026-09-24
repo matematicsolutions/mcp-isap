@@ -1,0 +1,125 @@
+{
+  "package_version": "1.3.0",
+  "toolset_sha256": "351a937239fcbfea490a20b879754a0f54545fd9bdca4ace63c7634cfc7dc0ee",
+  "tools": {
+    "get_act": {
+      "sha256": "17fbb497a20ef78e7bf2f5bb890e7d76d7d8f77876a670cfe38672a3b848eb28",
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Pobiera szczegoly aktu po identyfikatorze ELI (np. 'DU/2018/1000' dla Ustawy o ochronie danych osobowych z 2018 r.). Zwraca pelne metadane: tytul, typ, status obowiazywania, wejscie w zycie, slowa kluczowe, linki do tekstu HTML/PDF i strony ISAP.",
+        "inputSchema": {
+          "properties": {
+            "eli": {
+              "description": "Identyfikator ELI w formacie PUBLISHER/YEAR/POSITION, np. 'DU/2018/1000'.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eli"
+          ],
+          "type": "object"
+        },
+        "name": "get_act"
+      }
+    },
+    "get_act_text": {
+      "sha256": "367a38a994ca6373962be61fd92441aab14b44742e2d8c16d49d2418915999d5",
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Pobiera tekst aktu, stronami po 5000 znakow czystego tekstu. Odpowiedz konczy sie licznikiem `[paginacja] strona N z M`, a `structuredContent.pagination` ma page/total_pages/has_more - iteruj `page` az has_more=false. Zeby trafic w konkretny przepis bez przewijania, podaj `search_text` (np. 'Art. 118.') - tool zwroci fragment wokol tej frazy. UWAGA: dla aktu bazowego HTML to tekst OGLOSZONY (brzmienie pierwotne), nie stan obowiazujacy - `structuredContent.text_version` to rozroznia. Bledy: `text_unavailable_use_pdf` (akt ma tylko PDF), `not_found` (brak frazy albo aktu), `invalid_eli`.",
+        "inputSchema": {
+          "properties": {
+            "eli": {
+              "description": "ELI aktu, np. 'DU/2018/1000'.",
+              "type": "string"
+            },
+            "page": {
+              "description": "Numer strony tekstu, liczony od 1 (5000 znakow na strone). Domyslnie 1.",
+              "minimum": 1,
+              "type": "number"
+            },
+            "search_text": {
+              "description": "Fraza do znalezienia w tekscie aktu - zwraca fragment wokol pierwszego trafienia zamiast strony (np. 'Art. 118.'). Ma pierwszenstwo przed `page`. Wielkosc liter bez znaczenia, polskie znaki MAJA znaczenie.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eli"
+          ],
+          "type": "object"
+        },
+        "name": "get_act_text"
+      }
+    },
+    "search_acts": {
+      "sha256": "8653de09a983708670993979097ff566305f8fafd0d3f45bc03d71f38df6b281",
+      "descriptor": {
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        },
+        "description": "Wyszukiwanie aktow prawa polskiego (Dziennik Ustaw + Monitor Polski) przez oficjalne Sejm ELI API. Pokrycie: 96 000+ aktow od 1918. Filtry: fragment tytulu, rok, publisher (DU/MP), typ aktu, status obowiazywania. Bledy: `upstream_error`.",
+        "inputSchema": {
+          "properties": {
+            "in_force": {
+              "description": "true = tylko obowiazujace akty. Pomin zeby objac wszystkie.",
+              "type": "boolean"
+            },
+            "limit": {
+              "description": "Maks liczba wynikow (1-50). Domyslnie 10.",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "number"
+            },
+            "publisher": {
+              "description": "DU = Dziennik Ustaw (ustawy, rozporzadzenia), MP = Monitor Polski (uchwaly Sejmu, postanowienia Prezydenta, obwieszczenia).",
+              "enum": [
+                "DU",
+                "MP"
+              ],
+              "type": "string"
+            },
+            "title": {
+              "description": "Fragment tytulu (po polsku, z odmiana - np. 'ochronie' znajdzie 'ustawa o ochronie...').",
+              "type": "string"
+            },
+            "type": {
+              "description": "Typ aktu (po polsku, dokladnie jak w bazie).",
+              "enum": [
+                "Ustawa",
+                "RozporzÄ…dzenie",
+                "Obwieszczenie",
+                "UchwaĹ‚a",
+                "Umowa miÄ™dzynarodowa",
+                "Konstytucja",
+                "Postanowienie"
+              ],
+              "type": "string"
+            },
+            "year": {
+              "description": "Rok publikacji aktu.",
+              "maximum": 2100,
+              "minimum": 1918,
+              "type": "number"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "search_acts"
+      }
+    }
+  }
+}

@@ -37,3 +37,6 @@ jobs:
 
       - name: Verify dist artifact
         run: ls -la dist/index.js
+
+      - name: Descriptor lock (tools/list vs test/tools.lock.json)
+        run: npm run test:descriptors
