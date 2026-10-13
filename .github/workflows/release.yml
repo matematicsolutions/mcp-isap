@@ -75,6 +75,21 @@ jobs:
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
 
+      # Rejestr MCP waliduje paczke na npm i odrzuca wpis z 404, jesli zapyta za wczesnie
+      # (zmierzone 2026-10-13 przy mcp-krs 1.1.2: npm publish OK, rejestr 400 "version not found").
+      - name: Wait for the npm version to be visible
+        run: |
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://registry.npmjs.org/$PKG/$VER")
+            echo "$(date +%T) $PKG@$VER -> $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 30
+          done
+          echo "::error::$PKG@$VER not visible on npm after 15 min"
+          exit 1
+
       - name: Login to MCP Registry (GitHub OIDC)
         run: mcp-publisher login github-oidc
 
