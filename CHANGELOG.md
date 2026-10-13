@@ -3,6 +3,16 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-10-13
+
+Aktualizacja zaleznosci (bezpieczenstwo). Bez zmian w kodzie serwera i w kontrakcie narzedzi.
+
+### Security
+
+- `npm audit`: 6 doradztw (1 krytyczne, 2 wysokie, 3 srednie) -> 0. Zadna paczka nie doszla ani nie zniknela (porownanie zbiorow z lockfile'a); `@modelcontextprotocol/sdk` -> 1.32.1 i jego zaleznosci transportow HTTP (hono, proxy-addr, qs, ip-address, fast-uri i inne).
+- Ekspozycja przed poprawka (zderzone z kodem): serwer uzywa wylacznie `StdioServerTransport` - zaleznosci HTTP SDK nie sa ladowane; doradztwo SDK dotyczy KLIENTA OAuth. Realna ekspozycja bliska zera - aktualizacja, bo tania i bez zmiany wersji glownej SDK.
+- Weryfikacja: build, wszystkie bramki offline, zywy smoke 3/3 narzedzi na Sejm ELI.
+
 ## [1.4.1] - 2026-10-13
 
 Wydanie 1.4.0 zostalo otagowane, ale NIE trafilo na npm: bramka paczki dostala pusta liste z `npm pack --dry-run --json`, bo npm 12 (runner z `npm install -g npm@latest`) oddaje obiekt kluczowany nazwa paczki zamiast tablicy - i slusznie zablokowala (pusta lista = BLOKADA). 1.4.1 = tresc 1.4.0 + poprawka parsera.

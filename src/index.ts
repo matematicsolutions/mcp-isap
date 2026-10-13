@@ -990,7 +990,7 @@ function validateArgs(
 }
 
 const server = new Server(
-    { name: "mcp-isap", version: "1.4.1" },
+    { name: "mcp-isap", version: "1.4.2" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
 );
 
