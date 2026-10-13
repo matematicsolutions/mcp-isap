@@ -3,6 +3,14 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-13
+
+Wydanie 1.4.0 zostalo otagowane, ale NIE trafilo na npm: bramka paczki dostala pusta liste z `npm pack --dry-run --json`, bo npm 12 (runner z `npm install -g npm@latest`) oddaje obiekt kluczowany nazwa paczki zamiast tablicy - i slusznie zablokowala (pusta lista = BLOKADA). 1.4.1 = tresc 1.4.0 + poprawka parsera.
+
+### Fixed
+
+- Bramka paczki: `plikiZPack` rozumie oba formaty `npm pack --json` (npm <= 11: tablica, npm 12: obiekt); nieznany ksztalt nadal = pusta lista = BLOKADA. Testy obu formatow + kontrola na prawdziwym wyjsciu npm 12.
+
 ## [1.4.0] - 2026-10-13
 
 Odpornosc na ciche awarie (wzorce z oceny soba-labs/krs-mcp i leniwyposel/sejm-mcp, retrofit

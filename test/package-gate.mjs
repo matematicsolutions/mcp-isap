@@ -50,6 +50,17 @@ export function sprawdzPaczke(plikiPaczki, potrzebne) {
   return { status: powody.length ? "BLOKADA" : "OK", powody };
 }
 
+/**
+ * Lista plikow z `npm pack --dry-run --json`. npm <= 11 oddaje TABLICE wpisow, npm 12 oddaje
+ * OBIEKT kluczowany nazwa paczki (zmierzone 2026-10-13: release z `npm install -g npm@latest`
+ * dostal pusta liste i bramka zablokowala wydanie krs 1.2.0 i isap 1.4.0). Nieznany ksztalt =
+ * pusta lista, a pusta lista = BLOKADA w `sprawdzPaczke`.
+ */
+export function plikiZPack(dane) {
+  const wpis = Array.isArray(dane) ? dane[0] : dane && typeof dane === "object" ? Object.values(dane)[0] : null;
+  return (wpis?.files ?? []).map((f) => String(f.path).replace(/\\/g, "/"));
+}
+
 function main() {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -58,7 +69,7 @@ function main() {
     encoding: "utf-8",
     shell: process.platform === "win32",
   });
-  const pliki = (JSON.parse(out)[0]?.files ?? []).map((f) => f.path.replace(/\\/g, "/"));
+  const pliki = plikiZPack(JSON.parse(out));
   const potrzebne = wymagane(ROOT, pkg);
   const { status, powody } = sprawdzPaczke(pliki, potrzebne);
   if (status === "OK") {
