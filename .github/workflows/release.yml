@@ -43,6 +43,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Do 2026-10-13 wydanie szlo `npm ci -> build -> publish` bez zadnego testu: bramki
+      # chronily tylko laptopa. `npm test` = drift + conformance (kontrola pozytywna toleruje
+      # awarie zrodla) + regresja get_act_text na fixture'ach. Zywy smoke celowo poza wydaniem -
+      # awaria Sejm ELI nie blokuje NASZEGO wydania.
+      - name: Run gates before publishing
+        run: |
+          npm test
+          npm run test:e2e
+          npm run test:descriptors
+          npm run test:package
+
       - name: Publish to npm (granular token + provenance)
         run: npm publish --provenance --access public
         env:

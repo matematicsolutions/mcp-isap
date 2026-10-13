@@ -27,7 +27,9 @@ import {
 // HTTP client
 // ---------------------------------------------------------------------------
 
-const BASE_URL = "https://api.sejm.gov.pl/eli";
+// SEJM_ELI_BASE_URL nadpisuje zrodlo (testy E2E na lokalnej atrapie Sejm ELI; jak
+// SAOS_BASE_URL w mcp-saos).
+const BASE_URL = (process.env.SEJM_ELI_BASE_URL ?? "https://api.sejm.gov.pl/eli").replace(/\/+$/, "");
 const HTTP_TIMEOUT_MS = 30000;
 const DEFAULT_USER_AGENT =
     "mcp-isap/1.0 (+https://github.com/matematicsolutions/mcp-isap)";
@@ -40,6 +42,47 @@ async function throttled<T>(fn: () => Promise<T>): Promise<T> {
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastRequestAt = Date.now();
     return fn();
+}
+
+/**
+ * Awaria zrodla z kodem nadanym tam, gdzie sie rodzi - po STATUSIE i typie odpowiedzi.
+ * Do 2026-10-13 kod ustalal regex /404|not found/ po tresci komunikatu, a HTML/200 konczyl
+ * sie bledem parsera "sprobuj ponownie" (kanon MCP 6c).
+ */
+class ZrodloBlad extends Error {
+    constructor(
+        readonly code: ErrorCode,
+        message: string,
+    ) {
+        super(message);
+    }
+}
+
+// Zapora F5 przed api.sejm.gov.pl: HTTP 200 + HTML "Request Rejected" (zmierzone przy
+// sejm-eli-mcp 2026-10-13; wzorzec leniwyposel/sejm-mcp `src/klient.ts:325-330`).
+const ZAPORA = /Request Rejected|The requested URL was rejected/i;
+
+function bladZapory(body: string, url: string): ZrodloBlad | null {
+    if (!ZAPORA.test(body)) return null;
+    const id = body.match(/support ID is:?\s*([0-9A-Za-z-]+)/i)?.[1];
+    return new ZrodloBlad(
+        "upstream_blocked",
+        `Zapora Sejmu odrzucila zapytanie i oddala strone HTML zamiast danych: ${url}` +
+            (id ? ` (numer wsparcia: ${id})` : ""),
+    );
+}
+
+function bladStatusu(status: number, url: string): ZrodloBlad {
+    if (status === 404 || status === 410)
+        return new ZrodloBlad("not_found", `Sejm ELI nie ma takiego zasobu (${status}): ${url}`);
+    if (status === 401 || status === 403)
+        return new ZrodloBlad(
+            "forbidden",
+            `Sejm ELI odmowil dostepu (${status}): ${url}. Nie ponawiaj i nie obchodz zabezpieczen - zglos czlowiekowi`,
+        );
+    if (status === 429 || status >= 500)
+        return new ZrodloBlad("upstream_unavailable", `Sejm ELI odpowiedzial ${status}: ${url}`);
+    return new ZrodloBlad("upstream_error", `Sejm ELI odpowiedzial ${status}: ${url}`);
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -56,10 +99,20 @@ async function apiGet<T>(path: string): Promise<T> {
             },
             signal: controller.signal,
         });
-        if (!res.ok) {
-            throw new Error(`Sejm ELI API HTTP ${res.status} ${res.statusText}`);
+        if (!res.ok) throw bladStatusu(res.status, url);
+        const ct = res.headers.get("content-type") ?? "";
+        const body = await res.text();
+        if (!ct.toLowerCase().includes("json")) {
+            throw (
+                bladZapory(body, url) ??
+                new ZrodloBlad("upstream_shape", `Sejm ELI oddal ${ct || "nieznany typ"} zamiast JSON: ${url}`)
+            );
         }
-        return (await res.json()) as T;
+        try {
+            return JSON.parse(body) as T;
+        } catch {
+            throw new ZrodloBlad("upstream_shape", `Sejm ELI oddal uszkodzony JSON: ${url}`);
+        }
     } finally {
         clearTimeout(timer);
     }
@@ -79,10 +132,12 @@ async function apiGetText(path: string): Promise<string> {
             },
             signal: controller.signal,
         });
-        if (!res.ok) {
-            throw new Error(`Sejm ELI API HTTP ${res.status} ${res.statusText}`);
-        }
-        return await res.text();
+        if (!res.ok) throw bladStatusu(res.status, url);
+        const body = await res.text();
+        // text.html SLUSZNIE jest HTML-em - typ nie odroznia zapory od tresci, sygnatura tak.
+        const zapora = bladZapory(body, url);
+        if (zapora) throw zapora;
+        return body;
     } finally {
         clearTimeout(timer);
     }
@@ -178,6 +233,32 @@ function buildCitation(act: EliAct): IsapCitation {
         ...(act.promulgation && { promulgation: act.promulgation }),
     };
 }
+
+// ---------------------------------------------------------------------------
+// Provenance w kazdym udanym wyniku (wzorzec soba-labs/krs-mcp #1, `src/tools/common.ts:38-51`):
+// zrodlo, czas pobrania, czas wytworzenia (jawne null - nie zgadujemy) i co zrobil konektor.
+// Pod warunki ponownego wykorzystania informacji sektora publicznego.
+// ---------------------------------------------------------------------------
+
+function provenance(zrodla: string[], processing: string) {
+    return {
+        source: zrodla.length === 1 ? zrodla[0] : zrodla,
+        retrieved_at: new Date().toISOString(),
+        source_produced_at: null,
+        processing,
+    };
+}
+
+const PROCESSING_SEARCH =
+    "Wyniki wyszukiwania Sejm ELI bez zmian merytorycznych; konektor sformatowal liste, " +
+    "zbudowal citations i link do strony ISAP.";
+const PROCESSING_ACT =
+    "Metadane aktu z Sejm ELI bez zmian merytorycznych; konektor sformatowal je i zbudowal " +
+    "citation oraz linki do tekstu HTML/PDF i strony ISAP.";
+const PROCESSING_ACT_TEXT =
+    "Konektor pobral metadane i tekst HTML aktu z Sejm ELI, usunal znaczniki HTML, podzielil " +
+    "tekst na strony po 5000 znakow (albo wycial fragment wokol search_text) i z referencji " +
+    "aktu wyliczyl text_version; tresc przepisow bez zmian.";
 
 // ---------------------------------------------------------------------------
 // Text formatters (human readable for LLM)
@@ -349,6 +430,7 @@ Sejm ELI serwuje pod HTML **tekst ogloszony** danego aktu - czyli brzmienie z dn
 - **Bez modyfikacji tresci** - tekst urzedowy integralny, NIE parafrazuj.
 - **Tekst HTML nie zawsze istnieje** - czesc aktow (w tym swiezsze obwieszczenia z tekstem jednolitym) ma wylacznie PDF. Wtedy \`get_act_text\` zwraca BLAD \`text_unavailable_use_pdf\` z linkami do PDF - to nie jest tresc przepisu i nie wolno na tej podstawie twierdzic, jak przepis brzmi. Pobierz PDF poza tym konektorem albo powiedz uzytkownikowi, ze tresci nie masz.
 - **\`structuredContent.citations\`**: title, url (isap.sejm.gov.pl), eli, status, in_force, type, promulgation_date. Cytuj w odpowiedzi.
+- **\`structuredContent.provenance\`** w kazdym udanym wyniku: source (URL Sejm ELI), retrieved_at, source_produced_at (null - nie zgadujemy), processing (co zrobil konektor).
 
 ## Iteracja po bledach
 
@@ -358,7 +440,12 @@ Tool zwraca \`isError: true\` + tekst z prefixem \`[code]\`. Typowe kody:
 - \`invalid_eli\` - format ELI nieprawidlowy. Wymagany "DU/2018/1000" lub "MP/2024/123" lub kompakt "WDU20180001000".
 - \`not_found\` - akt o danym ELI nie ma w bazie ALBO fraza z \`search_text\` nie wystepuje w tekscie aktu. W drugim przypadku sprawdz pisownie z polskimi znakami - wyszukiwarka ISAP tez jest na nie wrazliwa ("postepowania" da 0 wynikow, "postÄ™powania" da komplet).
 - \`text_unavailable_use_pdf\` - akt istnieje, ale jego tresci NIE MA w HTML (tylko PDF). Odpowiedz zawiera linki do PDF i ELI tekstow jednolitych do sprobowania. NIE traktuj tego jako braku przepisu ani nie zgaduj jego brzmienia.
-- \`upstream_error\` - blad Sejm ELI API. Retry raz przed surface do uzytkownika.
+- \`upstream_error\` - inny nieoczekiwany status Sejm ELI API. Powiedz uzytkownikowi o awarii zamiast zgadywac wynik.
+- \`upstream_unavailable\` - timeout, blad sieci, 429 albo 5xx. Retry raz przed surface do uzytkownika.
+- \`upstream_blocked\` - zapora przed API Sejmu oddala strone "Request Rejected" (HTTP 200 + HTML). Nie ponawiaj identycznego zapytania; uprosc parametry albo zglos czlowiekowi z numerem wsparcia. To NIE jest tresc aktu.
+- \`upstream_shape\` - Sejm oddal cos innego niz JSON albo JSON w nieznanym ukladzie. To NIE jest "brak wynikow" - powiedz o awarii zrodla.
+- \`forbidden\` - Sejm odmowil dostepu (401/403). Nie ponawiaj, nie obchodz zabezpieczen - zglos czlowiekowi.
+- \`internal_error\` - blad tego serwera MCP, nie Sejmu. Nie ponawiaj; zglos blad konektora.
 
 ## Styl odpowiedzi
 
@@ -548,7 +635,15 @@ async function handleSearch(args: Record<string, unknown>) {
 
     const path = `/acts/search?${params.toString()}`;
     const data = await throttled(() => apiGet<EliSearchResponse>(path));
-    const items = data.items ?? [];
+    // Nieznany ksztalt to awaria zrodla, nie "Brak wynikow".
+    if (!Array.isArray(data?.items)) {
+        throw new ZrodloBlad(
+            "upstream_shape",
+            `Sejm ELI oddal wynik wyszukiwania w nieznanym ukladzie (brak listy items): ${BASE_URL}${path}`,
+        );
+    }
+    const items = data.items;
+    const zrodla = [`${BASE_URL}${path}`];
     return {
         content: [
             {
@@ -562,6 +657,7 @@ async function handleSearch(args: Record<string, unknown>) {
         ],
         structuredContent: {
             citations: items.map(buildCitation),
+            provenance: provenance(zrodla, PROCESSING_SEARCH),
         },
     };
 }
@@ -573,6 +669,11 @@ type ErrorCode =
     | "invalid_eli"
     | "not_found"
     | "upstream_error"
+    | "upstream_unavailable"
+    | "upstream_blocked"
+    | "upstream_shape"
+    | "forbidden"
+    | "internal_error"
     | "text_unavailable_use_pdf";
 
 function errorResult(text: string, code: ErrorCode) {
@@ -600,6 +701,7 @@ async function handleGetAct(args: Record<string, unknown>) {
         content: [{ type: "text", text: formatActDetails(act) }],
         structuredContent: {
             citations: [buildCitation(act)],
+            provenance: provenance([`${BASE_URL}${path}`], PROCESSING_ACT),
         },
     };
 }
@@ -622,6 +724,7 @@ async function handleGetActText(args: Record<string, unknown>) {
             : null;
 
     // Najpierw metadane (czy jest HTML, ktora to wersja tekstu, citation).
+    const zrodla = [`${BASE_URL}/acts/${publisher}/${year}/${position}`];
     const meta = await throttled(() =>
         apiGet<EliAct>(`/acts/${publisher}/${year}/${position}`),
     );
@@ -664,6 +767,7 @@ async function handleGetActText(args: Record<string, unknown>) {
 
     if (!meta.textHTML) return failUnavailable("Tekst HTML nie jest udostepniany przez API");
 
+    zrodla.push(`${BASE_URL}/acts/${publisher}/${year}/${position}/text.html`);
     const html = await throttled(() =>
         apiGetText(`/acts/${publisher}/${year}/${position}/text.html`),
     );
@@ -708,15 +812,23 @@ async function handleGetActText(args: Record<string, unknown>) {
     // prawdziwa, ale to brzmienie sprzed kolejnego obwieszczenia. Nastepce
     // znajdziemy przez akt bazowy - jedno dodatkowe zapytanie, tylko w tej galezi.
     let supersededBy: string[] = [];
+    // "nie sprawdzono" != "sprawdzono, brak nastepcy" (anty-wzorzec PawelHaracz #4, 2026-10-13)
+    let supersededByStatus: "ok" | "unavailable" | "not_checked" = "not_checked";
+    let supersededByBlad = "";
     if (isConsolidated && outOfForce) {
         try {
             const b = parseEli(consolidatedOf[0]);
+            zrodla.push(`${BASE_URL}/acts/${b.publisher}/${b.year}/${b.position}`);
             const baseMeta = await throttled(() =>
                 apiGet<EliAct>(`/acts/${b.publisher}/${b.year}/${b.position}`),
             );
             supersededBy = refIds(baseMeta, REF_HAS_CONSOLIDATED).filter((x) => x !== eli);
-        } catch {
-            supersededBy = []; // best-effort - brak nastepcy nie kasuje ostrzezenia nizej
+            supersededByStatus = "ok";
+        } catch (e) {
+            // best-effort - ostrzezenie nizej zostaje, ale awaria jest NAZWANA
+            supersededBy = [];
+            supersededByStatus = "unavailable";
+            supersededByBlad = e instanceof ZrodloBlad ? e.code : "internal_error";
         }
     }
 
@@ -751,6 +863,10 @@ async function handleGetActText(args: Record<string, unknown>) {
                 (supersededBy.length
                     ? `Nowszy tekst jednolity tej ustawy: ${supersededBy.slice(0, 3).join(", ")}. `
                     : "") +
+                (supersededByStatus === "unavailable"
+                    ? `Nie udalo sie sprawdzic nowszego tekstu jednolitego (${supersededByBlad}) - ` +
+                      `brak nastepcy NIE jest potwierdzony; sprawdz akt bazowy ${consolidatedOf[0]}. `
+                    : "") +
                 `Ponizsza tresc jest materialem historycznym - NIE cytuj jej jako stanu ` +
                 `prawnego na dzis.`,
         );
@@ -782,10 +898,12 @@ async function handleGetActText(args: Record<string, unknown>) {
         content: [{ type: "text", text: lines.join("\n") }],
         structuredContent: {
             citations: [buildCitation(meta)],
+            provenance: provenance(zrodla, PROCESSING_ACT_TEXT),
             text_available: true,
             text_version: textVersion,
             consolidated_text_eli: newerConsolidated,
             superseded_by_eli: supersededBy,
+            superseded_by_status: supersededByStatus,
             pagination: {
                 page: currentPage,
                 total_pages: totalPages,
@@ -872,7 +990,7 @@ function validateArgs(
 }
 
 const server = new Server(
-    { name: "mcp-isap", version: "1.3.0" },
+    { name: "mcp-isap", version: "1.4.0" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
 );
 
@@ -906,15 +1024,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return errorResult(`Nieznane narzedzie: ${name}`, "missing_arg");
         }
     } catch (err: unknown) {
+        // Kod nadaje warstwa HTTP po statusie i typie odpowiedzi (ZrodloBlad), nie regex po tresci.
+        if (err instanceof ZrodloBlad) return errorResult(err.message, err.code);
         const msg = err instanceof Error ? err.message : String(err);
-        // 404 z API -> not_found, reszta -> upstream_error
-        if (/404|not found/i.test(msg)) {
-            return errorResult(`Akt nie znaleziony w Sejm ELI: ${msg}.`, "not_found");
+        if (err instanceof Error && (err.name === "AbortError" || err.name === "TypeError")) {
+            // timeout (AbortController) albo blad sieci fetch
+            return errorResult(
+                `Sejm ELI nie odpowiedzial (${msg}). Sprobuj ponownie za chwile.`,
+                "upstream_unavailable",
+            );
         }
-        return errorResult(
-            `Blad komunikacji z Sejm ELI API: ${msg}. Sprobuj ponownie za chwile.`,
-            "upstream_error",
-        );
+        return errorResult(`Blad wewnetrzny konektora: ${msg}. Nie ponawiaj - zglos blad.`, "internal_error");
     }
 });
 

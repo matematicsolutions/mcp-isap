@@ -40,3 +40,9 @@ jobs:
 
       - name: Descriptor lock (tools/list vs test/tools.lock.json)
         run: npm run test:descriptors
+
+      - name: E2E over MCP against a local Sejm ELI stub (provenance)
+        run: npm run test:e2e
+
+      - name: Package gate (runtime files in npm pack)
+        run: npm run test:package

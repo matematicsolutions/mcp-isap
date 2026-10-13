@@ -3,6 +3,30 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-13
+
+Odpornosc na ciche awarie (wzorce z oceny soba-labs/krs-mcp i leniwyposel/sejm-mcp, retrofit
+z mcp-saos, 2026-10-13). Wersja minor: kody bledow sa rozdzielone (konkretniejsze niz `upstream_error`), ale zaden znany konsument nie rozgalezia sie na nich - PATRON czyta tylko `isError`, prawo-pl-mcp opakowuje bledy konektora we wlasny `upstream_error` (sprawdzone 2026-10-13).
+addytywne (nowe pole `provenance`). Kody bledow ROZDZIELONE (patrz Fixed) - klient branchujacy na
+`upstream_error` dostanie teraz konkretniejszy kod. Opisy narzedzi (tools/list) bez zmian -
+`tools.lock.json` przechodzi.
+
+### Fixed
+
+- **Zapora przed API Sejmu** (HTTP 200 + HTML "Request Rejected"): `apiGet` robil `res.json()` bez sprawdzenia typu - blad parsera wychodzil jako `upstream_error` "sprobuj ponownie"; `apiGetText` przyjmowal strone zapory JAKO TEKST AKTU. Teraz `upstream_blocked` z numerem wsparcia (sygnatura tresci na `text.html`, gdzie HTML jest legalny).
+- **Nieznany ksztalt wyszukiwania**: `data.items ?? []` zamienial JSON 200 w innym ukladzie w "Brak wynikow". Teraz `upstream_shape`; HTML/inny typ zamiast JSON i uszkodzony JSON - tez `upstream_shape`.
+- **Kod bledu ustalany regexem `/404|not found/` po tresci komunikatu** - teraz po statusie HTTP w warstwie zrodla: 404/410 -> `not_found`, 401/403 -> `forbidden` (bez ponawiania, przeglad czlowieka), 429/5xx/timeout/siec -> `upstream_unavailable`, inny status -> `upstream_error`, wyjatek spoza zrodla -> `internal_error` (zamiast "Blad komunikacji z Sejm ELI API, sprobuj ponownie").
+- **Nastepca wygaslego tekstu jednolitego**: `catch { supersededBy = [] }` - nieudane sprawdzenie aktu bazowego wygladalo jak "brak nastepcy". Teraz `structuredContent.superseded_by_status` (`ok` / `unavailable` / `not_checked`) i zdanie w ostrzezeniu "nie udalo sie sprawdzic ... brak nastepcy NIE jest potwierdzony" (pole addytywne).
+- Test: `test/odpornosc.test.mjs` (E2E przez MCP na atrapie, 7 czerwonych przed poprawkami + kontrole pozytywne).
+
+### Added
+
+- `structuredContent.provenance` w kazdym udanym wyniku: `source` (URL-e Sejm ELI, ktore konektor odpytal - w `get_act_text` takze `text.html` i ewentualnie akt bazowy), `retrieved_at`, `source_produced_at: null` (jawnie - nie zgadujemy), `processing` (wzorzec soba-labs/krs-mcp, warunki ponownego wykorzystania ISP).
+- `SEJM_ELI_BASE_URL` (env) - testy E2E na lokalnej atrapie Sejm ELI przez protokol MCP i prawdziwe HTTP (`test/e2e-atrapa.test.mjs`, `npm run test:e2e`); atrapa podaje odpowiedzi z `test/fixtures.mjs`, ksztalt `/acts/search` zmierzony na zywo. Test provenance z pelnym mianownikiem: `tools/list` == klucze wywolan, pusta lista = BLOKADA.
+- Zywy smoke `npm run smoke` (`test/smoke.mjs`) - repo go nie mialo: kazde narzedzie z `tools/list` wywolane na zywym Sejm ELI, provenance, nieistniejacy akt -> `not_found`. Celowo poza CI i wydaniem.
+- Bramka paczki `npm run test:package` (`npm pack --dry-run --json`; wymagane pliki wyprowadzone z `bin`/`main` + przechodnich `require`/`import` w `dist/`, pusta lista = BLOKADA).
+- `release.yml`: krok "Run gates before publishing" (`npm test`, e2e, descriptor lock, bramka paczki) - do tej pory wydanie szlo bez zadnego testu. `ci.yml`: e2e + bramka paczki.
+
 ## [1.3.0] - 2026-07-31
 
 Fixes a **silent-incompleteness** class in `get_act_text`: the tool used to return
